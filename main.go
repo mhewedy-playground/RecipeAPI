@@ -68,13 +68,51 @@ func (r *recipe) save(c *redis.Client) error {
 }
 
 func (r *recipe) load(id int64, c *redis.Client) error {
-	//if id <= 0 {
-	//	return errors.New("invalid id")
-	//}
-	//
-	//_, err := c.Pipelined(func(pipe redis.Pipeliner) error {
-	//
-	//})
+	if id <= 0 {
+		return errors.New("invalid id")
+	}
+
+	r.id = id
+
+	var hgetAllCmd *redis.StringStringMapCmd
+	var categoriesCmd *redis.StringSliceCmd
+	var ingredientsCmd *redis.StringSliceCmd
+	var imagesCmd *redis.StringSliceCmd
+
+	_, err := c.Pipelined(func(pipe redis.Pipeliner) error {
+
+		hgetAllCmd = pipe.HGetAll(fmt.Sprintf("recipe:%d", r.id))
+		categoriesCmd = pipe.LRange(fmt.Sprintf("recipe:%d:categories", r.id), 0, -1)
+		ingredientsCmd = pipe.LRange(fmt.Sprintf("recipe:%d:ingredients", r.id), 0, -1)
+		imagesCmd = pipe.LRange(fmt.Sprintf("recipe:%d:images", r.id), 0, -1)
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	result, err := hgetAllCmd.Result()
+	if err != nil {
+		return err
+	}
+	r.title = result["title"]
+	r.difficulty = result["difficulty"]
+	r.prepPeriod, _ = time.ParseDuration(result["prep_period"])
+	r.method = result["method"]
+
+	r.categories, err = categoriesCmd.Result()
+	if err != nil {
+		return err
+	}
+	r.ingredients, err = ingredientsCmd.Result()
+	if err != nil {
+		return err
+	}
+	r.images, err = imagesCmd.Result()
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -117,7 +155,17 @@ func main() {
 
 	//initDB(client)
 
-	fmt.Println(list(1, client))
+	//fmt.Println(list(1, client))
+
+	load(1, client)
+}
+
+func load(id int64, client *redis.Client) {
+	var recipe = &recipe{}
+	if err := recipe.load(id, client); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(recipe)
 }
 
 func initDB(client *redis.Client) {
