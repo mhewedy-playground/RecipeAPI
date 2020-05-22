@@ -75,17 +75,14 @@ func (r *recipe) load(id int64, c *redis.Client) error {
 	r.id = id
 
 	var hgetAllCmd *redis.StringStringMapCmd
-	var categoriesCmd *redis.StringSliceCmd
-	var ingredientsCmd *redis.StringSliceCmd
-	var imagesCmd *redis.StringSliceCmd
+	var listCmds [3]*redis.StringSliceCmd
 
 	_, err := c.Pipelined(func(pipe redis.Pipeliner) error {
-
 		hgetAllCmd = pipe.HGetAll(fmt.Sprintf("recipe:%d", r.id))
-		categoriesCmd = pipe.LRange(fmt.Sprintf("recipe:%d:categories", r.id), 0, -1)
-		ingredientsCmd = pipe.LRange(fmt.Sprintf("recipe:%d:ingredients", r.id), 0, -1)
-		imagesCmd = pipe.LRange(fmt.Sprintf("recipe:%d:images", r.id), 0, -1)
 
+		for i, l := range []string{"categories", "ingredients", "images"} {
+			listCmds[i] = pipe.LRange(fmt.Sprintf("recipe:%d:%s", r.id, l), 0, -1)
+		}
 		return nil
 	})
 	if err != nil {
@@ -101,15 +98,17 @@ func (r *recipe) load(id int64, c *redis.Client) error {
 	r.prepPeriod, _ = time.ParseDuration(result["prep_period"])
 	r.method = result["method"]
 
-	r.categories, err = categoriesCmd.Result()
-	if err != nil {
-		return err
+	loadList := func(list ...*[]string) error {
+		for i := range list {
+			strings, err := listCmds[i].Result()
+			if err != nil {
+				return err
+			}
+			*list[i] = strings
+		}
+		return nil
 	}
-	r.ingredients, err = ingredientsCmd.Result()
-	if err != nil {
-		return err
-	}
-	r.images, err = imagesCmd.Result()
+	err = loadList(&r.categories, &r.ingredients, &r.images)
 	if err != nil {
 		return err
 	}
@@ -176,7 +175,7 @@ func initDB(client *redis.Client) {
 		method:      "",
 		categories:  []string{"breakfast", "eastern"},
 		ingredients: []string{"eggs", "corn"},
-		images:      []string{"url1", "url2"},
+		//images:      []string{"url1", "url2"},
 	}
 
 	for i := 0; i < 100; i++ {
