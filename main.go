@@ -44,9 +44,21 @@ func (r *recipe) save(c *redis.Client) error {
 			"prep_period", r.prepPeriod.String(),
 			"method", r.method,
 		)
-		recipeList{r.id, "categories", r.categories}.save(c, pipe)
-		recipeList{r.id, "ingredients", r.ingredients}.save(c, pipe)
-		recipeList{r.id, "images", r.images}.save(c, pipe)
+
+		saveList := func(recipeId int64, name string, values []string, c *redis.Client, pipe redis.Pipeliner) {
+			if values == nil {
+				return
+			}
+			key := fmt.Sprintf("recipe:%d:%s", recipeId, name)
+			if c.Exists(key).Val() == 1 {
+				return
+			}
+			pipe.RPush(key, values)
+		}
+
+		saveList(r.id, "categories", r.categories, c, pipe)
+		saveList(r.id, "ingredients", r.ingredients, c, pipe)
+		saveList(r.id, "images", r.images, c, pipe)
 
 		return nil
 	})
@@ -54,25 +66,13 @@ func (r *recipe) save(c *redis.Client) error {
 	return err
 }
 
-type recipeList struct {
-	recipeId int64
-	name     string
-	values   []string
-}
-
-func (l recipeList) save(c *redis.Client, pipe redis.Pipeliner) {
-	if l.values == nil {
-		return
-	}
-	key := fmt.Sprintf("recipe:%d:%s", l.recipeId, l.name)
-	if c.Exists(key).Val() == 1 {
-		return
-	}
-	pipe.RPush(key, l.values)
-}
-
 func (r *recipe) load(id int64, c *redis.Client) error {
 	return nil
+}
+
+func list(page int, c *redis.Client) ([]recipe, error) {
+
+	return nil, nil
 }
 
 func main() {
