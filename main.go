@@ -8,6 +8,7 @@ import (
 	"github.com/gorilla/mux"
 	"log"
 	"net/http"
+	"strconv"
 )
 
 type recipe struct {
@@ -169,7 +170,6 @@ func main() {
 func createHandler(w http.ResponseWriter, r *http.Request) {
 
 	var recipe recipe
-
 	err := json.NewDecoder(r.Body).Decode(&recipe)
 	if err != nil {
 		handleError(w, err)
@@ -185,6 +185,27 @@ func createHandler(w http.ResponseWriter, r *http.Request) {
 
 func updateHandler(w http.ResponseWriter, r *http.Request) {
 
+	id := mux.Vars(r)["id"]
+
+	var recipe recipe
+	err := json.NewDecoder(r.Body).Decode(&recipe)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+
+	idInt, err := strconv.Atoi(id)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	recipe.ID = int64(idInt)
+
+	err = recipe.save(rdb)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
 }
 
 func viewHandler(w http.ResponseWriter, r *http.Request) {
