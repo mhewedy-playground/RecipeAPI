@@ -26,7 +26,7 @@ type recipe struct {
 func (r *recipe) save(c *redis.Client) error {
 
 	if len(r.Title) == 0 {
-		return errors.New("Title cannot be null")
+		return errors.New("title cannot be null")
 	}
 
 	var save bool
