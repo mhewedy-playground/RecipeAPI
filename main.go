@@ -24,6 +24,11 @@ type recipe struct {
 
 // save used for Create or Update
 func (r *recipe) save(c *redis.Client) error {
+
+	if len(r.Title) == 0 {
+		return errors.New("Title cannot be null")
+	}
+
 	var save bool
 
 	if r.ID == 0 {
@@ -135,7 +140,7 @@ func list(page int, c *redis.Client) ([]string, error) {
 	var cmds []*redis.SliceCmd
 	_, err = c.Pipelined(func(pipe redis.Pipeliner) error {
 		for _, recipeId := range recipeIds {
-			cmds = append(cmds, pipe.HMGet(fmt.Sprintf("recipe:%s", recipeId), "Title"))
+			cmds = append(cmds, pipe.HMGet(fmt.Sprintf("recipe:%s", recipeId), "title"))
 		}
 		return nil
 	})
@@ -161,7 +166,7 @@ func main() {
 
 	r.Path("/recipe").Methods("POST").HandlerFunc(createHandler)
 	r.Path("/recipe/{id}").Methods("PUT").HandlerFunc(updateHandler)
-	r.Path("/recipe/{id}").Methods("GET").HandlerFunc(viewHandler)
+	r.Path("/recipe/{id}").Methods("GET").HandlerFunc(getHandler)
 	r.Path("/recipes").Methods("GET").HandlerFunc(listHandler)
 
 	log.Fatal(http.ListenAndServe(":8080", r))
@@ -207,43 +212,60 @@ func updateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func viewHandler(w http.ResponseWriter, r *http.Request) {
+func getHandler(w http.ResponseWriter, r *http.Request) {
 
+	id := mux.Vars(r)["id"]
+	idInt, err := strconv.Atoi(id)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+
+	var recipe = &recipe{}
+
+	err = recipe.load(int64(idInt), rdb)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	err = json.NewEncoder(w).Encode(recipe)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
 }
 
 func listHandler(w http.ResponseWriter, r *http.Request) {
 
+	pageParam, ok := r.URL.Query()["page"]
+	if !ok {
+		handleError(w, errors.New("missing page parameter"))
+		return
+	}
+
+	page, err := strconv.Atoi(pageParam[0])
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+
+	titles, err := list(page, rdb)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	err = json.NewEncoder(w).Encode(titles)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
 }
 
 func handleError(w http.ResponseWriter, err error) {
 	w.WriteHeader(http.StatusBadRequest)
 	w.Write([]byte(err.Error()))
-}
-
-func load(id int64, client *redis.Client) {
-	var recipe = &recipe{}
-	if err := recipe.load(id, client); err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println(recipe)
-}
-
-func initDB(client *redis.Client) {
-	r := &recipe{
-		Title:       "PanCake",
-		Difficulty:  "easy",
-		PrepPeriod:  "10m",
-		Method:      "",
-		Categories:  []string{"breakfast", "eastern"},
-		Ingredients: []string{"eggs", "corn"},
-		Images:      []string{"url1", "url2"},
-	}
-
-	for i := 0; i < 100; i++ {
-		r.ID = 0
-		r.Title = fmt.Sprintf("PanCake-%d", i)
-		if err := r.save(client); err != nil {
-			log.Fatal(err)
-		}
-	}
 }
