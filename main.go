@@ -8,45 +8,44 @@ import (
 	"github.com/gorilla/mux"
 	"log"
 	"net/http"
-	"time"
 )
 
 type recipe struct {
-	id          int64
-	title       string
-	difficulty  string
-	prepPeriod  time.Duration
-	method      string
-	categories  []string
-	ingredients []string
-	images      []string
+	ID          int64    `json:"id"`
+	Title       string   `json:"title"`
+	Difficulty  string   `json:"difficulty"`
+	PrepPeriod  string   `json:"prep_period"`
+	Method      string   `json:"method"`
+	Categories  []string `json:"categories"`
+	Ingredients []string `json:"ingredients"`
+	Images      []string `json:"images"`
 }
 
 // save used for Create or Update
 func (r *recipe) save(c *redis.Client) error {
 	var save bool
 
-	if r.id == 0 {
+	if r.ID == 0 {
 		save = true
 		id, err := c.Incr("recipe_id").Result()
 		if err != nil {
 			return err
 		}
-		r.id = id
+		r.ID = id
 	}
 
 	_, err := c.TxPipelined(func(pipe redis.Pipeliner) error {
 		if save {
-			if err := pipe.RPush("recipes", r.id).Err(); err != nil {
+			if err := pipe.RPush("recipes", r.ID).Err(); err != nil {
 				return err
 			}
 		}
-		pipe.HMSet(fmt.Sprintf("recipe:%d", r.id),
-			"id", r.id,
-			"title", r.title,
-			"difficulty", r.difficulty,
-			"prep_period", r.prepPeriod.String(),
-			"method", r.method,
+		pipe.HMSet(fmt.Sprintf("recipe:%d", r.ID),
+			"id", r.ID,
+			"title", r.Title,
+			"difficulty", r.Difficulty,
+			"prep_period", r.PrepPeriod,
+			"method", r.Method,
 		)
 
 		saveList := func(recipeId int64, name string, values []string, c *redis.Client, pipe redis.Pipeliner) {
@@ -60,9 +59,9 @@ func (r *recipe) save(c *redis.Client) error {
 			pipe.RPush(key, values)
 		}
 
-		saveList(r.id, "categories", r.categories, c, pipe)
-		saveList(r.id, "ingredients", r.ingredients, c, pipe)
-		saveList(r.id, "images", r.images, c, pipe)
+		saveList(r.ID, "categories", r.Categories, c, pipe)
+		saveList(r.ID, "ingredients", r.Ingredients, c, pipe)
+		saveList(r.ID, "images", r.Images, c, pipe)
 
 		return nil
 	})
@@ -75,16 +74,16 @@ func (r *recipe) load(id int64, c *redis.Client) error {
 		return errors.New("invalid id")
 	}
 
-	r.id = id
+	r.ID = id
 
 	var hgetAllCmd *redis.StringStringMapCmd
 	var listCmds [3]*redis.StringSliceCmd
 
 	_, err := c.Pipelined(func(pipe redis.Pipeliner) error {
-		hgetAllCmd = pipe.HGetAll(fmt.Sprintf("recipe:%d", r.id))
+		hgetAllCmd = pipe.HGetAll(fmt.Sprintf("recipe:%d", r.ID))
 
 		for i, l := range []string{"categories", "ingredients", "images"} {
-			listCmds[i] = pipe.LRange(fmt.Sprintf("recipe:%d:%s", r.id, l), 0, -1)
+			listCmds[i] = pipe.LRange(fmt.Sprintf("recipe:%d:%s", r.ID, l), 0, -1)
 		}
 		return nil
 	})
@@ -96,10 +95,10 @@ func (r *recipe) load(id int64, c *redis.Client) error {
 	if err != nil {
 		return err
 	}
-	r.title = result["title"]
-	r.difficulty = result["difficulty"]
-	r.prepPeriod, _ = time.ParseDuration(result["prep_period"])
-	r.method = result["method"]
+	r.Title = result["title"]
+	r.Difficulty = result["difficulty"]
+	r.PrepPeriod, _ = result["prep_period"]
+	r.Method = result["method"]
 
 	loadList := func(list ...*[]string) error {
 		for i := range list {
@@ -111,7 +110,7 @@ func (r *recipe) load(id int64, c *redis.Client) error {
 		}
 		return nil
 	}
-	err = loadList(&r.categories, &r.ingredients, &r.images)
+	err = loadList(&r.Categories, &r.Ingredients, &r.Images)
 	if err != nil {
 		return err
 	}
@@ -135,7 +134,7 @@ func list(page int, c *redis.Client) ([]string, error) {
 	var cmds []*redis.SliceCmd
 	_, err = c.Pipelined(func(pipe redis.Pipeliner) error {
 		for _, recipeId := range recipeIds {
-			cmds = append(cmds, pipe.HMGet(fmt.Sprintf("recipe:%s", recipeId), "title"))
+			cmds = append(cmds, pipe.HMGet(fmt.Sprintf("recipe:%s", recipeId), "Title"))
 		}
 		return nil
 	})
@@ -151,10 +150,11 @@ func list(page int, c *redis.Client) ([]string, error) {
 	return titles, nil
 }
 
+var rdb *redis.Client
+
 func main() {
 
-	client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
-	_ = client
+	rdb = redis.NewClient(&redis.Options{Addr: "localhost:6379"})
 
 	r := mux.NewRouter()
 
@@ -168,7 +168,19 @@ func main() {
 
 func createHandler(w http.ResponseWriter, r *http.Request) {
 
-	//json.NewDecoder(r.Body).Decode()
+	var recipe recipe
+
+	err := json.NewDecoder(r.Body).Decode(&recipe)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+
+	err = recipe.save(rdb)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
 }
 
 func updateHandler(w http.ResponseWriter, r *http.Request) {
@@ -183,6 +195,11 @@ func listHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func handleError(w http.ResponseWriter, err error) {
+	w.WriteHeader(http.StatusBadRequest)
+	w.Write([]byte(err.Error()))
+}
+
 func load(id int64, client *redis.Client) {
 	var recipe = &recipe{}
 	if err := recipe.load(id, client); err != nil {
@@ -193,18 +210,18 @@ func load(id int64, client *redis.Client) {
 
 func initDB(client *redis.Client) {
 	r := &recipe{
-		title:       "PanCake",
-		difficulty:  "easy",
-		prepPeriod:  10 * time.Minute,
-		method:      "",
-		categories:  []string{"breakfast", "eastern"},
-		ingredients: []string{"eggs", "corn"},
-		images:      []string{"url1", "url2"},
+		Title:       "PanCake",
+		Difficulty:  "easy",
+		PrepPeriod:  "10m",
+		Method:      "",
+		Categories:  []string{"breakfast", "eastern"},
+		Ingredients: []string{"eggs", "corn"},
+		Images:      []string{"url1", "url2"},
 	}
 
 	for i := 0; i < 100; i++ {
-		r.id = 0
-		r.title = fmt.Sprintf("PanCake-%d", i)
+		r.ID = 0
+		r.Title = fmt.Sprintf("PanCake-%d", i)
 		if err := r.save(client); err != nil {
 			log.Fatal(err)
 		}
