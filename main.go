@@ -1,10 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/go-redis/redis/v7"
+	"github.com/gorilla/mux"
 	"log"
+	"net/http"
 	"time"
 )
 
@@ -151,12 +154,33 @@ func list(page int, c *redis.Client) ([]string, error) {
 func main() {
 
 	client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+	_ = client
 
-	//initDB(client)
+	r := mux.NewRouter()
 
-	//fmt.Println(list(1, client))
+	r.Path("/recipe").Methods("POST").HandlerFunc(createHandler)
+	r.Path("/recipe/{id}").Methods("PUT").HandlerFunc(updateHandler)
+	r.Path("/recipe/{id}").Methods("GET").HandlerFunc(viewHandler)
+	r.Path("/recipes").Methods("GET").HandlerFunc(listHandler)
 
-	load(1, client)
+	log.Fatal(http.ListenAndServe(":8080", r))
+}
+
+func createHandler(w http.ResponseWriter, r *http.Request) {
+
+	//json.NewDecoder(r.Body).Decode()
+}
+
+func updateHandler(w http.ResponseWriter, r *http.Request) {
+
+}
+
+func viewHandler(w http.ResponseWriter, r *http.Request) {
+
+}
+
+func listHandler(w http.ResponseWriter, r *http.Request) {
+
 }
 
 func load(id int64, client *redis.Client) {
@@ -175,7 +199,7 @@ func initDB(client *redis.Client) {
 		method:      "",
 		categories:  []string{"breakfast", "eastern"},
 		ingredients: []string{"eggs", "corn"},
-		//images:      []string{"url1", "url2"},
+		images:      []string{"url1", "url2"},
 	}
 
 	for i := 0; i < 100; i++ {
