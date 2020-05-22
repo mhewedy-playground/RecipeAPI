@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"github.com/go-redis/redis/v7"
 	"log"
@@ -67,18 +68,59 @@ func (r *recipe) save(c *redis.Client) error {
 }
 
 func (r *recipe) load(id int64, c *redis.Client) error {
+	//if id <= 0 {
+	//	return errors.New("invalid id")
+	//}
+	//
+	//_, err := c.Pipelined(func(pipe redis.Pipeliner) error {
+	//
+	//})
+
 	return nil
 }
 
-func list(page int, c *redis.Client) ([]recipe, error) {
+func list(page int, c *redis.Client) ([]string, error) {
+	if page <= 0 {
+		return nil, errors.New("invalid page")
+	}
 
-	return nil, nil
+	const pageSize int64 = 20
+	from, to := (int64(page)-1)*pageSize, int64(page)*pageSize-1
+
+	recipeIds, err := c.LRange("recipes", from, to).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	var cmds []*redis.SliceCmd
+	_, err = c.Pipelined(func(pipe redis.Pipeliner) error {
+		for _, recipeId := range recipeIds {
+			cmds = append(cmds, pipe.HMGet(fmt.Sprintf("recipe:%s", recipeId), "title"))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var titles []string
+	for _, c := range cmds {
+		titles = append(titles, c.Val()[0].(string))
+	}
+
+	return titles, nil
 }
 
 func main() {
 
 	client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
 
+	//initDB(client)
+
+	fmt.Println(list(1, client))
+}
+
+func initDB(client *redis.Client) {
 	r := &recipe{
 		title:       "PanCake",
 		difficulty:  "easy",
@@ -89,7 +131,9 @@ func main() {
 		images:      []string{"url1", "url2"},
 	}
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 100; i++ {
+		r.id = 0
+		r.title = fmt.Sprintf("PanCake-%d", i)
 		if err := r.save(client); err != nil {
 			log.Fatal(err)
 		}
