@@ -14,21 +14,16 @@ import (
 type recipe struct {
 	ID          int64    `json:"id"`
 	Title       string   `json:"title"`
-	Difficulty  string   `json:"difficulty"`
-	PrepPeriod  string   `json:"prep_period"`
-	Method      string   `json:"method"`
-	Categories  []string `json:"categories"`
-	Ingredients []string `json:"ingredients"`
-	Images      []string `json:"images"`
+	Difficulty  string   `json:"difficulty,omitempty"`
+	PrepPeriod  string   `json:"prep_period,omitempty"`
+	Method      string   `json:"method,omitempty"`
+	Categories  []string `json:"categories,omitempty"`
+	Ingredients []string `json:"ingredients,omitempty"`
+	Images      []string `json:"images,omitempty"`
 }
 
 // save used for Create or Update
 func (r *recipe) save(c *redis.Client) error {
-
-	if len(r.Title) == 0 {
-		return errors.New("title cannot be null")
-	}
-
 	var save bool
 
 	if r.ID == 0 {
@@ -124,7 +119,7 @@ func (r *recipe) load(id int64, c *redis.Client) error {
 	return nil
 }
 
-func list(page int, c *redis.Client) ([]string, error) {
+func list(page int, c *redis.Client) ([]recipe, error) {
 	if page <= 0 {
 		return nil, errors.New("invalid page")
 	}
@@ -140,7 +135,7 @@ func list(page int, c *redis.Client) ([]string, error) {
 	var cmds []*redis.SliceCmd
 	_, err = c.Pipelined(func(pipe redis.Pipeliner) error {
 		for _, recipeId := range recipeIds {
-			cmds = append(cmds, pipe.HMGet(fmt.Sprintf("recipe:%s", recipeId), "title"))
+			cmds = append(cmds, pipe.HMGet(fmt.Sprintf("recipe:%s", recipeId), "id", "title"))
 		}
 		return nil
 	})
@@ -148,9 +143,13 @@ func list(page int, c *redis.Client) ([]string, error) {
 		return nil, err
 	}
 
-	var titles []string
+	var titles []recipe
 	for _, c := range cmds {
-		titles = append(titles, c.Val()[0].(string))
+		id, _ := strconv.Atoi(c.Val()[0].(string))
+		titles = append(titles, recipe{
+			ID:    int64(id),
+			Title: c.Val()[1].(string),
+		})
 	}
 
 	return titles, nil
@@ -251,14 +250,14 @@ func listHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	titles, err := list(page, rdb)
+	l, err := list(page, rdb)
 	if err != nil {
 		handleError(w, err)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(w).Encode(titles)
+	err = json.NewEncoder(w).Encode(l)
 	if err != nil {
 		handleError(w, err)
 		return
